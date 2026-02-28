@@ -164,3 +164,86 @@ public final class Transacto {
     private String postJson(String urlString, String jsonBody) throws IOException {
         URL url = new URL(urlString);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Content-Type", "application/json");
+        conn.setDoOutput(true);
+        try (OutputStream os = conn.getOutputStream()) {
+            os.write(jsonBody.getBytes(StandardCharsets.UTF_8));
+        }
+        int code = conn.getResponseCode();
+        if (code != 200) {
+            try (InputStream err = conn.getErrorStream()) {
+                String errBody = err != null ? new String(err.readAllBytes(), StandardCharsets.UTF_8) : "";
+                throw new IOException("HTTP " + code + " " + errBody);
+            }
+        }
+        try (InputStream is = conn.getInputStream()) {
+            return new String(is.readAllBytes(), StandardCharsets.UTF_8);
+        }
+    }
+
+    private static String extractResult(String jsonResponse) {
+        if (jsonResponse == null) return null;
+        int i = jsonResponse.indexOf("\"result\":\"");
+        if (i < 0) return null;
+        i += 10;
+        int j = jsonResponse.indexOf("\"", i);
+        if (j < 0) return null;
+        return jsonResponse.substring(i, j);
+    }
+
+    // -------------------------------------------------------------------------
+    // CONTRACT VIEW CALLS (decode from 0x-prefixed hex)
+    // -------------------------------------------------------------------------
+
+    public BigInteger getOrderIdsLength() throws IOException {
+        String data = GET_ORDER_IDS_LENGTH_SELECTOR;
+        String raw = ethCall(OTC_CONTRACT_ADDRESS, data);
+        String result = extractResult(raw);
+        if (result == null || result.length() < 66) return BigInteger.ZERO;
+        return new BigInteger(result.substring(2), 16);
+    }
+
+    public String getOrderAt(BigInteger index) throws IOException {
+        String data = GET_ORDER_AT_SELECTOR + padUint256(index);
+        String raw = ethCall(OTC_CONTRACT_ADDRESS, data);
+        String result = extractResult(raw);
+        if (result == null || result.length() < 66) return null;
+        return "0x" + result.substring(2).toLowerCase();
+    }
+
+    public OrderView getOrderViewByIndex(BigInteger index) throws IOException {
+        String data = GET_ORDER_VIEW_BY_INDEX_SELECTOR + padUint256(index);
+        String raw = ethCall(OTC_CONTRACT_ADDRESS, data);
+        String result = extractResult(raw);
+        return decodeOrderView(result);
+    }
+
+    public OrderView getOrderView(String orderIdHex) throws IOException {
+        String data = GET_ORDER_VIEW_SELECTOR + padBytes32(orderIdHex);
+        String raw = ethCall(OTC_CONTRACT_ADDRESS, data);
+        String result = extractResult(raw);
+        return decodeOrderView(result);
+    }
+
+    private OrderView decodeOrderView(String hex) {
+        if (hex == null || hex.length() < 2) return null;
+        hex = hex.replaceFirst("^0x", "");
+        int offset = 0;
+        if (hex.length() < 64 * 10) return null;
+        OrderView v = new OrderView();
+        v.orderId = "0x" + hex.substring(offset, offset + 64).replaceFirst("^0+", "");
+        if (v.orderId.length() < 66) v.orderId = "0x" + hex.substring(offset, offset + 64);
+        offset += 64;
+        v.maker = "0x" + hex.substring(offset + 24, offset + 64);
+        offset += 64;
+        v.assetType = new BigInteger(hex.substring(offset, offset + 64), 16).intValue();
+        offset += 64;
+        v.assetId = "0x" + hex.substring(offset, offset + 64);
+        offset += 64;
+        v.amount = new BigInteger(hex.substring(offset, offset + 64), 16);
+        offset += 64;
+        v.pricePerUnit = new BigInteger(hex.substring(offset, offset + 64), 16);
+        offset += 64;
+        v.isSell = new BigInteger(hex.substring(offset, offset + 64), 16).signum() != 0;
+        offset += 64;
