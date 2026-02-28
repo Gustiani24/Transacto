@@ -247,3 +247,86 @@ public final class Transacto {
         offset += 64;
         v.isSell = new BigInteger(hex.substring(offset, offset + 64), 16).signum() != 0;
         offset += 64;
+        v.filledAmount = new BigInteger(hex.substring(offset, offset + 64), 16);
+        offset += 64;
+        v.status = new BigInteger(hex.substring(offset, offset + 64), 16).intValue();
+        offset += 64;
+        v.createdAt = new BigInteger(hex.substring(offset, offset + 64), 16);
+        return v;
+    }
+
+    public List<OrderView> getOrderViewsBatch(int offset, int limit) throws IOException {
+        BigInteger len = getOrderIdsLength();
+        if (len.compareTo(BigInteger.valueOf(offset)) <= 0) return Collections.emptyList();
+        int end = Math.min(offset + limit, len.intValue());
+        int batch = Math.min(limit, 48);
+        List<OrderView> list = new ArrayList<>();
+        for (int i = offset; i < end && (i - offset) < batch; i++) {
+            OrderView v = getOrderViewByIndex(BigInteger.valueOf(i));
+            if (v != null) list.add(v);
+        }
+        return list;
+    }
+
+    public boolean isPlatformPaused() throws IOException {
+        String data = IS_PLATFORM_PAUSED_SELECTOR;
+        String raw = ethCall(OTC_CONTRACT_ADDRESS, data);
+        String result = extractResult(raw);
+        if (result == null || result.length() < 66) return true;
+        return new BigInteger(result.substring(2), 16).signum() != 0;
+    }
+
+    public BigInteger getMinOrderWei() throws IOException {
+        String data = MIN_ORDER_SIZE_SELECTOR;
+        String raw = ethCall(OTC_CONTRACT_ADDRESS, data);
+        String result = extractResult(raw);
+        if (result == null || result.length() < 66) return BigInteger.ZERO;
+        return new BigInteger(result.substring(2), 16);
+    }
+
+    public BigInteger getFeeBps() throws IOException {
+        String data = FEE_PERCENT_BPS_SELECTOR;
+        String raw = ethCall(OTC_CONTRACT_ADDRESS, data);
+        String result = extractResult(raw);
+        if (result == null || result.length() < 66) return BigInteger.ZERO;
+        return new BigInteger(result.substring(2), 16);
+    }
+
+    public PlatformStats getPlatformStats() throws IOException {
+        PlatformStats s = new PlatformStats();
+        s.totalOrders = getOrderIdsLength();
+        s.paused = isPlatformPaused();
+        s.minOrderWei = getMinOrderWei();
+        s.feeBps = getFeeBps();
+        int open = 0;
+        for (BigInteger i = BigInteger.ZERO; i.compareTo(s.totalOrders) < 0; i = i.add(BigInteger.ONE)) {
+            OrderView v = getOrderViewByIndex(i);
+            if (v != null && v.status == 0) open++;
+        }
+        s.openOrders = BigInteger.valueOf(open);
+        return s;
+    }
+
+    public BigInteger getFillValueWei(String orderIdHex, BigInteger fillAmount) {
+        OrderView v = null;
+        try { v = getOrderView(orderIdHex); } catch (IOException e) { return null; }
+        if (v == null) return null;
+        return v.pricePerUnit.multiply(fillAmount).divide(PRICE_DECIMALS);
+    }
+
+    // -------------------------------------------------------------------------
+    // BUILD TRANSACTION DATA (for future eth_sendRawTransaction)
+    // -------------------------------------------------------------------------
+
+    public String buildPostOrderData(BigInteger assetType, String assetIdHex, BigInteger amount, BigInteger pricePerUnit, boolean isSell) {
+        return POST_ORDER_SELECTOR
+            + padUint256(assetType)
+            + padBytes32(assetIdHex)
+            + padUint256(amount)
+            + padUint256(pricePerUnit)
+            + encodeBool(isSell);
+    }
+
+    public String buildFillOrderData(String orderIdHex, BigInteger fillAmount) {
+        return FILL_ORDER_SELECTOR + padBytes32(orderIdHex) + padUint256(fillAmount);
+    }
