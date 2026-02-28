@@ -81,3 +81,86 @@ public final class Transacto {
     // DATA MODELS
     // -------------------------------------------------------------------------
 
+    public static final class OrderView {
+        public String orderId;
+        public String maker;
+        public int assetType;
+        public String assetId;
+        public BigInteger amount;
+        public BigInteger pricePerUnit;
+        public boolean isSell;
+        public BigInteger filledAmount;
+        public int status;
+        public BigInteger createdAt;
+
+        @Override
+        public String toString() {
+            return String.format("OrderView{id=%s maker=%s assetType=%d amount=%s price=%s isSell=%s filled=%s status=%d}",
+                orderId, maker, assetType, amount, pricePerUnit, isSell, filledAmount, status);
+        }
+    }
+
+    public static final class OrderSummary {
+        public String orderId;
+        public String maker;
+        public BigInteger amount;
+        public BigInteger filledAmount;
+        public BigInteger pricePerUnit;
+        public boolean isSell;
+        public int status;
+    }
+
+    public static final class PlatformStats {
+        public BigInteger totalOrders;
+        public BigInteger openOrders;
+        public BigInteger minOrderWei;
+        public BigInteger feeBps;
+        public boolean paused;
+    }
+
+    // -------------------------------------------------------------------------
+    // ABI ENCODING HELPERS
+    // -------------------------------------------------------------------------
+
+    private static String padLeft(String hex, int bytesLen) {
+        int len = bytesLen * 2;
+        if (hex == null) hex = "0";
+        hex = hex.replaceFirst("^0x", "");
+        if (hex.length() >= len) return hex.substring(hex.length() - len);
+        return "0".repeat(len - hex.length()) + hex;
+    }
+
+    private static String padAddress(String addr) {
+        if (addr == null) return padLeft("0", 20);
+        addr = addr.replaceFirst("^0x", "");
+        return padLeft(addr, 20);
+    }
+
+    private static String padBytes32(String h) {
+        if (h == null) h = "0";
+        h = h.replaceFirst("^0x", "");
+        return padLeft(h, 32);
+    }
+
+    private static String padUint256(BigInteger n) {
+        if (n == null) n = BigInteger.ZERO;
+        String hex = n.toString(16);
+        return padLeft(hex, 32);
+    }
+
+    private static String encodeBool(boolean b) {
+        return padLeft(b ? "1" : "0", 32);
+    }
+
+    // -------------------------------------------------------------------------
+    // RPC CALL (eth_call)
+    // -------------------------------------------------------------------------
+
+    private String ethCall(String to, String data) throws IOException {
+        String body = "{\"jsonrpc\":\"2.0\",\"method\":\"eth_call\",\"params\":[{\"to\":\"" + to + "\",\"data\":\"" + data + "\"},\"latest\"],\"id\":1}";
+        return postJson(rpcUrl, body);
+    }
+
+    private String postJson(String urlString, String jsonBody) throws IOException {
+        URL url = new URL(urlString);
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
